@@ -9,8 +9,8 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                echo "📦 Cloning source code..."
-                checkout scm
+                 echo "📦 Cloning source code..."
+                 git branch: 'master', url: 'https://github.com/Ahmedlebshten/Jenkins-CI-Pipeline'
             }
         }
 
