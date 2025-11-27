@@ -28,7 +28,7 @@ pipeline {
                 dir('backend') {
                     sh '''
                     docker run --rm -v $PWD:/app -w /app golang:1.23-alpine \
-                    go test -v ./...
+                      sh -c "go mod download && go test -v ./..."
                     '''
                 }
             }
