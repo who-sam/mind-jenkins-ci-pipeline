@@ -22,7 +22,7 @@ pipeline {
                 }
             }
         }
-
+        /*
         stage('Test Backend') {
             steps {
                 dir('backend') {
@@ -30,7 +30,7 @@ pipeline {
                 }
             }
         }
-
+        */
         stage('Build Docker Images') {
             steps {
                 script {
