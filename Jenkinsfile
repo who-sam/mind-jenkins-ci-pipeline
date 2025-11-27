@@ -5,60 +5,95 @@ pipeline {
         FRONTEND_IMAGE = 'whosam1/notes-app-frontend'
         BACKEND_IMAGE = 'whosam1/notes-app-backend'
         GITHUB_TOKEN = credentials('github-token')
+        // Use commit hash for immutable tags
+        IMAGE_TAG = "${GIT_COMMIT}"
     }
     stages {
         stage('Checkout Notes App Code') {
             steps {
-                // Clone the Notes App repository
                 git branch: 'main', url: 'https://github.com/who-sam/MIND.git'
             }
         }
 
         stage('Checkout Manifests Repo') {
             steps {
-                // Clone the helloapp repo for manifests (in a different directory)
                 dir('manifests-repo') {
                     git branch: 'main', url: 'https://github.com/who-sam/argocd-pipeline.git'
                 }
             }
         }
-        /*
-        stage('Test Backend') {
-            steps {
-                dir('backend') {
-                    sh 'go test ./...'
+
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Frontend') {
+                    steps {
+                        script {
+                            sh """
+                            docker build -t $FRONTEND_IMAGE:$IMAGE_TAG -f frontend/Dockerfile ./frontend
+                            docker tag $FRONTEND_IMAGE:$IMAGE_TAG $FRONTEND_IMAGE:latest
+                            """
+                        }
+                    }
+                }
+                stage('Build Backend') {
+                    steps {
+                        script {
+                            sh """
+                            docker build -t $BACKEND_IMAGE:$IMAGE_TAG -f backend/Dockerfile ./backend
+                            docker tag $BACKEND_IMAGE:$IMAGE_TAG $BACKEND_IMAGE:latest
+                            """
+                        }
+                    }
                 }
             }
         }
-        */
-        stage('Build Docker Images') {
-            steps {
-                script {
-                    // Build frontend
-                    sh """
-                    docker build -t $FRONTEND_IMAGE:${GIT_COMMIT} -f frontend/Dockerfile ./frontend
-                    docker tag $FRONTEND_IMAGE:${GIT_COMMIT} $FRONTEND_IMAGE:latest
-                    """
 
-                    // Build backend
-                    sh """
-                    docker build -t $BACKEND_IMAGE:${GIT_COMMIT} -f backend/Dockerfile ./backend
-                    docker tag $BACKEND_IMAGE:${GIT_COMMIT} $BACKEND_IMAGE:latest
-                    """
+        stage('Run Tests') {
+            parallel {
+                stage('Test Frontend') {
+                    steps {
+                        script {
+                            // Add your frontend tests here
+                            echo "Running frontend tests..."
+                        }
+                    }
+                }
+                stage('Test Backend') {
+                    steps {
+                        script {
+                            // Uncomment and modify your backend tests
+                            // dir('backend') {
+                            //     sh 'go test ./...'
+                            // }
+                            echo "Running backend tests..."
+                        }
+                    }
                 }
             }
         }
 
         stage('Push to Docker Hub') {
-            steps {
-                script {
-                    sh """
-                    docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
-                    docker push $FRONTEND_IMAGE:${GIT_COMMIT}
-                    docker push $FRONTEND_IMAGE:latest
-                    docker push $BACKEND_IMAGE:${GIT_COMMIT}
-                    docker push $BACKEND_IMAGE:latest
-                    """
+            parallel {
+                stage('Push Frontend') {
+                    steps {
+                        script {
+                            sh """
+                            docker login -u $DOCKERHUB_CREDENTIALS_USR -p $DOCKERHUB_CREDENTIALS_PSW
+                            docker push $FRONTEND_IMAGE:$IMAGE_TAG
+                            docker push $FRONTEND_IMAGE:latest
+                            """
+                        }
+                    }
+                }
+                stage('Push Backend') {
+                    steps {
+                        script {
+                            sh """
+                            docker push $BACKEND_IMAGE:$IMAGE_TAG
+                            docker push $BACKEND_IMAGE:latest
+                            """
+                        }
+                    }
                 }
             }
         }
@@ -66,24 +101,63 @@ pipeline {
         stage('Update K8s Manifests') {
             steps {
                 script {
+                    // Fix: Update the correct path (remove ArgoCD-Pipeline subdirectory)
                     sh """
                     # Update frontend deployment with new image
-                    sed -i 's|image: .*/notes-app-frontend:.*|image: $FRONTEND_IMAGE:${GIT_COMMIT}|' manifests-repo/ArgoCD-Pipeline/frontend-deployment.yaml
+                    sed -i 's|image: .*/notes-app-frontend:.*|image: $FRONTEND_IMAGE:$IMAGE_TAG|' manifests-repo/frontend-deployment.yaml
 
                     # Update backend deployment with new image
-                    sed -i 's|image: .*/notes-app-backend:.*|image: $BACKEND_IMAGE:${GIT_COMMIT}|' manifests-repo/ArgoCD-Pipeline/backend-deployment.yaml
+                    sed -i 's|image: .*/notes-app-backend:.*|image: $BACKEND_IMAGE:$IMAGE_TAG|' manifests-repo/backend-deployment.yaml
                     """
 
+                    // Verify the changes
                     sh '''
-                    cd manifests-repo
-                    git config user.name "jenkins"
-                    git config user.email "jenkins@example.com"
-                    git add ArgoCD-Pipeline/
-                    git commit -m "CI: Update Notes App image tags to ${GIT_COMMIT}"
-                    git push https://${GITHUB_TOKEN}@github.com/whosam1/argocd-pipeline.git main
+                    echo "=== Updated Frontend Deployment ==="
+                    cat manifests-repo/frontend-deployment.yaml | grep image:
+                    echo "=== Updated Backend Deployment ==="
+                    cat manifests-repo/backend-deployment.yaml | grep image:
                     '''
                 }
             }
+        }
+
+        stage('Commit and Push Manifests') {
+            steps {
+                script {
+                    dir('manifests-repo') {
+                        sh """
+                        git config user.name "jenkins"
+                        git config user.email "jenkins@example.com"
+                        git add frontend-deployment.yaml backend-deployment.yaml
+                        git status
+                        git commit -m "CI: Update Notes App image tags to ${IMAGE_TAG}"
+                        git push https://${GITHUB_TOKEN}@github.com/who-sam/argocd-pipeline.git main
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                // Clean up Docker images to free up space
+                sh """
+                docker rmi $FRONTEND_IMAGE:$IMAGE_TAG || true
+                docker rmi $FRONTEND_IMAGE:latest || true
+                docker rmi $BACKEND_IMAGE:$IMAGE_TAG || true
+                docker rmi $BACKEND_IMAGE:latest || true
+                """
+            }
+            cleanWs()
+        }
+        success {
+            echo "Pipeline completed successfully! ArgoCD should now sync the new images."
+        }
+        failure {
+            echo "Pipeline failed! Check the logs for details."
+            // You can add notification steps here (email, Slack, etc.)
         }
     }
 }
