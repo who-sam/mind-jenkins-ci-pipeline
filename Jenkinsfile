@@ -18,7 +18,7 @@ pipeline {
             steps {
                 // Clone the helloapp repo for manifests (in a different directory)
                 dir('manifests-repo') {
-                    git branch: 'main', url: 'https://github.com/whosam1/helloapp.git'
+                    git branch: 'main', url: 'https://github.com/who-sam/argocd-pipeline.git'
                 }
             }
         }
