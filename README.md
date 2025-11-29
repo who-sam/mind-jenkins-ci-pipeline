@@ -23,3 +23,4 @@ A simple **CI pipeline** using **Jenkins**, **Docker**, and **GitHub** to automa
 
 ```bash
 docker run -p 8080:80 ahmedlebshten/helloapp:latest
+.....
